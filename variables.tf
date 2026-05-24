@@ -170,6 +170,32 @@ variable "app_extra_env" {
   default     = {}
 }
 
+# ─── Auto start/stop ECS (économie hors heures de travail) ───────────────────
+
+variable "app_schedule_enabled" {
+  description = "Active 2 EventBridge schedules cron pour stop/start ECS auto (économie ~60% en dev). Laisser false en prod."
+  type        = bool
+  default     = false
+}
+
+variable "app_schedule_timezone" {
+  description = "Timezone des cron (cf liste IANA). Ex: 'Europe/Paris', 'UTC'."
+  type        = string
+  default     = "Europe/Paris"
+}
+
+variable "app_schedule_start_cron" {
+  description = "Cron de démarrage (desired_count=1). Format AWS : cron(min hour day-of-month month day-of-week year)."
+  type        = string
+  default     = "cron(0 7 ? * MON-FRI *)" # 7h, lundi-vendredi
+}
+
+variable "app_schedule_stop_cron" {
+  description = "Cron d'arrêt (desired_count=0). Idem syntax."
+  type        = string
+  default     = "cron(0 22 ? * MON-FRI *)" # 22h, lundi-vendredi
+}
+
 # ─── EFS (cache HTML + sessions partagés entre tasks) ─────────────────────────
 
 variable "efs_performance_mode" {
