@@ -48,6 +48,11 @@ resource "aws_cloudfront_distribution" "uploads" {
     # Managed origin request policy "CORS-S3Origin" : forward les headers
     # CORS pour que S3 réponde correctement aux requêtes cross-origin.
     origin_request_policy_id = "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf"
+
+    # Force un Cache-Control sur la réponse viewer. Sans ça, S3 ne renvoie aucun
+    # Cache-Control → le navigateur reçoit un TTL vide (Lighthouse « Cache TTL: None »).
+    # `override = true` l'applique aussi aux objets DÉJÀ uploadés (corrige l'existant).
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.uploads_cache.id
   }
 
   # Cert : on utilise le *.cloudfront.net par défaut. Pour un domaine custom
@@ -65,6 +70,25 @@ resource "aws_cloudfront_distribution" "uploads" {
 
   tags = {
     Purpose = "Laravel uploads CDN"
+  }
+}
+
+# Response Headers Policy : injecte un Cache-Control long sur les réponses du CDN
+# uploads. La policy CachingOptimized gère le cache CÔTÉ CloudFront, mais ne pose
+# rien sur la réponse renvoyée au navigateur — d'où le « Cache TTL: None » de Lighthouse.
+# 30 jours, cohérent avec docker/nginx.conf (assets non-hashés) et l'option CacheControl
+# du disque S3 (reactionpermis-2026/config/filesystems.php). Pas `immutable` : les noms
+# d'uploads Filament sont uniques (ULID) mais on reste prudent côté écrasement.
+resource "aws_cloudfront_response_headers_policy" "uploads_cache" {
+  name    = "${local.name_prefix}-uploads-cache"
+  comment = "Force Cache-Control sur les uploads (sinon viewer recoit un TTL vide)"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "public, max-age=2592000"
+      override = true
+    }
   }
 }
 

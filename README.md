@@ -59,15 +59,22 @@ Migration vers Redis ElastiCache possible plus tard : changer `SESSION_DRIVER`, 
 
 Le lock est natif S3 depuis Terraform 1.10 (`use_lockfile = true` dans `backends/*.hcl`) → **pas besoin de DynamoDB**.
 
+> PowerShell : quoter tout argument contenant un `=` (`"LocationConstraint=eu-west-3"`),
+> sinon il est cassé sur le `=`.
+
 ```powershell
 aws s3api create-bucket --bucket reactionpermis-tfstate --region eu-west-3 `
-  --create-bucket-configuration LocationConstraint=eu-west-3
+  --create-bucket-configuration "LocationConstraint=eu-west-3"
 
 aws s3api put-bucket-versioning --bucket reactionpermis-tfstate `
   --versioning-configuration Status=Enabled
 
 aws s3api put-bucket-encryption --bucket reactionpermis-tfstate `
   --server-side-encryption-configuration '{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}'
+
+# Bloque tout accès public (le state contient secrets, ARNs, IDs).
+aws s3api put-public-access-block --bucket reactionpermis-tfstate `
+  --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 ```
 
 ### 2. User MySQL Laravel sur l'Aurora
@@ -87,12 +94,12 @@ Plus tard, si tu veux scoper les droits par app (sécurité défense en profonde
 ```powershell
 . .\.env.dev.ps1   # source TF_VAR_rds_password
 
-terraform init -reconfigure -backend-config=backends/dev.hcl
-terraform plan  --% -var-file=envs/dev.tfvars
-terraform apply --% -var-file=envs/dev.tfvars
+terraform init -reconfigure "-backend-config=backends/dev.hcl"
+terraform plan  "-var-file=envs/dev.tfvars"
+terraform apply "-var-file=envs/dev.tfvars"
 ```
 
-Le `--%` est le **stop-parsing token PowerShell** : sans lui, PowerShell mange le `=` dans `-var-file=...`.
+Les **guillemets** autour de `"-backend-config=..."` / `"-var-file=..."` sont obligatoires sous PowerShell : sans eux, il casse l'argument sur le `=` (Terraform voit alors un argument positionnel → « Too many command line arguments »). Le token `--%` (stop-parsing) avant le flag marche aussi.
 
 Le premier apply crée tout sauf le cert ACM validé : le service ECS va crash-looper tant qu'aucune image n'est dans ECR. C'est attendu.
 
