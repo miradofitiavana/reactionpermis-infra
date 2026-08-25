@@ -70,11 +70,8 @@ variable "rds_username" {
   type        = string
 }
 
-variable "rds_password" {
-  description = "Password du user MySQL Laravel. Stocké dans Secrets Manager. Préférer TF_VAR_rds_password."
-  type        = string
-  sensitive   = true
-}
+# Pas de variable rds_password : le mot de passe est injecté dans Secrets Manager
+# hors Terraform (cf. secrets.tf), pour qu'il n'entre jamais dans le tfstate.
 
 # ─── ALB mutualisé (aaaep-site-web-alb) ───────────────────────────────────────
 
@@ -101,15 +98,53 @@ variable "shared_alb_listener_http_arn" {
 }
 
 variable "app_fqdn" {
-  description = "FQDN public Laravel (ex: dev.reactionpermis.fr). Active cert ACM + listener rule host-based si non vide."
+  description = "FQDN public Laravel (ex: dev.reactionpermis.fr). Active cert ACM + listener rule host-based si non vide. DOIT être l'hôte CANONIQUE, celui vers lequel les autres redirigent : il alimente APP_URL (cf. ecs.tf), donc le canonical, og:url, les <loc> du sitemap et la directive Sitemap: du robots.txt. Y mettre un hôte qui répond 301 fait déclarer à toutes les pages une URL canonique redirigée. Les alias (apex, anciens domaines) vont dans app_additional_hosts."
+  type        = string
+  default     = ""
+}
+
+variable "app_additional_hosts" {
+  description = "Hosts supplémentaires servis par la même règle que app_fqdn (ex: [\"reactionpermis.fr\"] quand app_fqdn vaut www.reactionpermis.fr). Le certificat doit les couvrir. Utile au go-live : la règle ALB historique (priorité 60) sert apex ET www dans une seule règle, la remplacer sans reprendre les deux enverrait l'hôte oublié sur l'action par défaut de l'ALB, donc sur le site aaaep."
+  type        = list(string)
+  default     = []
+}
+
+variable "app_acm_certificate_domain" {
+  description = "Domaine d'un certificat ACM existant couvrant app_fqdn et app_additional_hosts (ex: reactionpermis.fr, si son SAN *.reactionpermis.fr couvre preprod.reactionpermis.fr). Renseigné = ce stack consomme ce certificat sans le créer ni l'attacher au listener — son propriétaire s'en charge. Vide = le stack émet son propre certificat pour app_fqdn. Résolu par nom et non par ARN : le certificat est créé hors Terraform, un ARN en dur casserait s'il était recréé."
+  type        = string
+  default     = ""
+}
+
+variable "app_route53_zone_id" {
+  description = "Zone Route53 hébergeant app_fqdn, si elle est dans LE MÊME compte que ce stack. Renseignée = Terraform pose les records de validation ACM, attend l'émission du certificat, et crée l'alias vers l'ALB (apply en une passe). Vide = DNS manuel, seul mode possible quand la zone vit dans un autre compte (cas du dev). À vider au go-live : les records de reactionpermis.fr existent déjà et les adopter rendrait un retour arrière dangereux."
   type        = string
   default     = ""
 }
 
 variable "app_listener_rule_priority" {
-  description = "Priorité listener rule app sur le 443 (1-50000, unique sur ce listener)."
+  description = "Priorité listener rule app sur le 443 (1-50000, unique sur ce listener). ⚠️ la priorité +1 est aussi réservée (règle 403 du mode pré-prod verrouillée)."
   type        = number
   default     = 200
+}
+
+variable "app_allowed_source_ips" {
+  description = <<-EOT
+    Mode pré-prod verrouillée : liste de CIDR autorisés à accéder au FQDN
+    (ex: ["203.0.113.42/32"]). Non vide = la listener rule exige Host ET IP
+    source, et une règle 403 (priorité +1) bloque tout le reste du trafic de
+    ce Host. Vide (défaut) = accès public normal — c'est l'état go-live.
+    NB : l'ALB voit l'IP publique du client (pas de proxy devant), donc un /32
+    par poste/bureau suffit. L'IP du poste change (FAI non fixe) : la
+    re-vérifier à chaque session, sinon on se verrouille soi-même dehors.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "github_deploy_branch_patterns" {
+  description = "Branches autorisées à assumer le rôle de déploiement de cet environnement (patterns de sub OIDC, joker * accepté). Défaut permissif pour ne pas casser le dev ; la prod restreint aux seules branches qui déclenchent un déploiement."
+  type        = list(string)
+  default     = ["*"]
 }
 
 # ─── Laravel app / ECS ────────────────────────────────────────────────────────
@@ -168,6 +203,45 @@ variable "app_extra_env" {
   description = "Env vars non-secrètes additionnelles à injecter dans la task (overrides + extensions)."
   type        = map(string)
   default     = {}
+}
+
+# ─── Paiement Lyra / PayZen ───────────────────────────────────────────────────
+#
+# La boutique utilisée est celle de Réaction Permis. Point de vigilance majeur :
+# les MÊMES identifiants doivent être configurés côté API organisme sous
+# `WEB_API_REACTION_LYRA_*`, car c'est avec ce mot de passe que l'IPN vérifie la
+# signature `kr-hash` du retour de paiement. Deux jeux de clés différents = le
+# client est débité mais la réservation n'est jamais confirmée en base.
+#
+# Répartition volontaire :
+#   - username + password → injectés dans Secrets Manager HORS Terraform
+#                           (cf. secrets.tf) : pas de variable ici, sinon la
+#                           valeur transiterait par le tfstate
+#   - public key          → env var simple : elle est envoyée au NAVIGATEUR par le
+#                           formulaire embarqué Krypton, ce n'est pas un secret
+#   - endpoint + IPN      → env vars simples, ce sont des URLs de configuration
+
+variable "lyra_public_key" {
+  description = "Clé publique Lyra (LYRA_PK). Publique par nature : chargée côté navigateur par le formulaire Krypton."
+  type        = string
+  default     = ""
+}
+
+variable "lyra_endpoint" {
+  description = "Endpoint API Lyra. Le mode test ne se choisit PAS par l'URL mais par le jeu de clés (clés de test vs production)."
+  type        = string
+  default     = "https://api.payzen.eu"
+}
+
+variable "lyra_ipn_url" {
+  description = <<-EOT
+    URL de notification (IPN) appelée par Lyra après paiement. DOIT pointer sur
+    l'endpoint REACTION de l'API organisme, jamais sur celui de CNTP ou d'AAAEP :
+    c'est ce qui détermine le mode de paiement posé sur la réservation
+    (MP_SITE_LYRA_CONFIRMED_REACTION).
+  EOT
+  type        = string
+  default     = "https://organisme.aaaep.fr/api/api/v3/reservations-paiement-reaction"
 }
 
 # ─── Auto start/stop ECS (économie hors heures de travail) ───────────────────

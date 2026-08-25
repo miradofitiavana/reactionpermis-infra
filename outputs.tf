@@ -70,7 +70,7 @@ output "app_secrets_arn" {
 # ─── FQDN ─────────────────────────────────────────────────────────────────────
 
 output "app_acm_validation_records" {
-  value = local.enable_app_fqdn ? {
+  value = local.app_cert_managed ? {
     for dvo in aws_acm_certificate.app[0].domain_validation_options :
     dvo.domain_name => {
       name  = dvo.resource_record_name
@@ -78,7 +78,12 @@ output "app_acm_validation_records" {
       value = dvo.resource_record_value
     }
   } : {}
-  description = "CNAME de validation ACM à créer dans Route53 prod (zone reactionpermis.fr)."
+  description = "CNAME de validation ACM à créer à la main quand la zone Route53 est dans un autre compte. Vide quand le stack consomme un certificat existant (app_acm_certificate_domain) ou quand Terraform pilote le DNS (app_route53_zone_id)."
+}
+
+output "app_certificate_arn" {
+  value       = local.app_cert_external ? data.aws_acm_certificate.external[0].arn : (local.app_cert_managed ? aws_acm_certificate.app[0].arn : null)
+  description = "Certificat effectivement présenté pour app_fqdn, qu'il soit émis par ce stack ou consommé de la fondation. Sert à vérifier qu'on s'appuie bien sur le certificat attendu."
 }
 
 output "app_fqdn_cname_target" {
@@ -98,13 +103,14 @@ output "github_actions_app_role_arn" {
   description = "ARN à utiliser comme role-to-assume dans le workflow GitHub Actions Laravel."
 }
 
+# null en prod : le user IAM à clés statiques n'y est pas créé (cf. iam_dev_user.tf).
 output "uploads_dev_access_key_id" {
-  value       = aws_iam_access_key.uploads_dev.id
-  description = "AWS_ACCESS_KEY_ID pour tests locaux S3 (.env du projet 2026)."
+  value       = local.is_prod ? null : aws_iam_access_key.uploads_dev[0].id
+  description = "AWS_ACCESS_KEY_ID pour tests locaux S3 (.env du projet 2026). Dev uniquement."
 }
 
 output "uploads_dev_secret_access_key" {
-  value       = aws_iam_access_key.uploads_dev.secret
+  value       = local.is_prod ? null : aws_iam_access_key.uploads_dev[0].secret
   sensitive   = true
-  description = "AWS_SECRET_ACCESS_KEY. Récupérer : `terraform output -raw uploads_dev_secret_access_key`"
+  description = "AWS_SECRET_ACCESS_KEY. Récupérer : `terraform output -raw uploads_dev_secret_access_key`. Dev uniquement."
 }

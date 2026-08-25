@@ -11,9 +11,14 @@
 #   - Pas de droits IAM, pas d'autres services, pas de droits admin
 #   - Les clés sont dans le state TF (chiffré côté backend S3)
 #   - À recycler avec `aws iam create-access-key` puis update du state si compromise
+#
+# Dev uniquement : en prod ce serait un credential long terme, dont le secret vit
+# dans le state, pour un confort de poste de dev. Si le besoin se présente un jour
+# de tester les uploads en local contre le bucket prod, lever le gate ponctuellement.
 
 resource "aws_iam_user" "uploads_dev" {
-  name = "${local.name_prefix}-app-uploads-local-dev"
+  count = local.is_prod ? 0 : 1
+  name  = "${local.name_prefix}-app-uploads-local-dev"
 
   tags = {
     Purpose = "Laravel S3 uploads local dev test"
@@ -21,12 +26,14 @@ resource "aws_iam_user" "uploads_dev" {
 }
 
 resource "aws_iam_access_key" "uploads_dev" {
-  user = aws_iam_user.uploads_dev.name
+  count = local.is_prod ? 0 : 1
+  user  = aws_iam_user.uploads_dev[0].name
 }
 
 resource "aws_iam_user_policy" "uploads_dev" {
-  name = "uploads-rw"
-  user = aws_iam_user.uploads_dev.name
+  count = local.is_prod ? 0 : 1
+  name  = "uploads-rw"
+  user  = aws_iam_user.uploads_dev[0].name
 
   policy = jsonencode({
     Version = "2012-10-17"

@@ -18,7 +18,12 @@ data "aws_iam_openid_connect_provider" "github" {
 }
 
 # Rôle assumé par les workflows du repo reactionpermis-2026.
-# Scope strict : seul AAAEP/reactionpermis-2026 sur develop|main peut l'assumer.
+#
+# Le sub OIDC porte la branche du run : restreindre dessus, c'est décider quelles
+# branches ont le droit de déployer sur CET environnement. En prod on n'autorise
+# que les branches qui déclenchent réellement un déploiement (cf. deploy.yml), pour
+# qu'un workflow lancé depuis une branche de travail ne puisse pas obtenir des
+# credentials sur le compte de production.
 resource "aws_iam_role" "github_actions_app" {
   name = "${local.name_prefix}-github-actions-app"
 
@@ -35,8 +40,10 @@ resource "aws_iam_role" "github_actions_app" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          # Patterns acceptés : develop OU main. Adapter si autre branche cible.
-          "token.actions.githubusercontent.com:sub" = "repo:AAAEP/reactionpermis-2026:ref:refs/heads/*"
+          "token.actions.githubusercontent.com:sub" = [
+            for b in var.github_deploy_branch_patterns :
+            "repo:AAAEP/reactionpermis-2026:ref:refs/heads/${b}"
+          ]
         }
       }
     }]
@@ -90,6 +97,15 @@ resource "aws_iam_role_policy" "github_actions_app" {
             "ecs:cluster" = aws_ecs_cluster.main.arn
           }
         }
+      },
+      {
+        # Le workflow vérifie après déploiement qu'au moins une cible est saine
+        # derrière l'ALB : « service stable » côté ECS ne dit rien de l'état du
+        # health check. Lecture seule.
+        Sid      = "ALBHealthRead"
+        Effect   = "Allow"
+        Action   = "elasticloadbalancing:DescribeTargetHealth"
+        Resource = "*" # les actions Describe* d'ELBv2 n'acceptent pas de scope par ressource
       },
       {
         Sid    = "PassRole"

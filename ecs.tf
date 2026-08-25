@@ -119,6 +119,15 @@ resource "aws_ecs_task_definition" "app" {
 
       # Trust proxies : ALB termine TLS, X-Forwarded-* headers à respecter.
       { name = "TRUSTED_PROXIES", value = "*" },
+
+      # Paiement Lyra / PayZen (tunnel de réservation).
+      # LYRA_PK n'est pas un secret : le formulaire embarqué Krypton la charge dans
+      # le navigateur. Seuls username et password passent par Secrets Manager.
+      { name = "LYRA_PK", value = var.lyra_public_key },
+      { name = "LYRA_ENDPOINT", value = var.lyra_endpoint },
+      # Doit rester l'endpoint REACTION de l'API organisme : c'est lui qui pose
+      # MP_SITE_LYRA_CONFIRMED_REACTION sur la réservation.
+      { name = "LYRA_IPN_URL", value = var.lyra_ipn_url },
       ],
       # Permet d'ajouter / overrider des env vars sans modifier ce fichier.
       [for k, v in var.app_extra_env : { name = k, value = v }],
@@ -129,6 +138,11 @@ resource "aws_ecs_task_definition" "app" {
     secrets = [
       { name = "APP_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:APP_KEY::" },
       { name = "DB_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:DB_PASSWORD::" },
+      # Identifiants boutique Lyra. La syntaxe `:CLE::` demande a ECS d'extraire une
+      # seule clé du JSON du secret (les deux `:` finaux = version-stage et
+      # version-id laissés vides, donc « version courante »).
+      { name = "LYRA_USERNAME", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_USERNAME::" },
+      { name = "LYRA_PWD", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_PWD::" },
     ]
 
     logConfiguration = {

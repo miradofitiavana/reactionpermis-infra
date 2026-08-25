@@ -4,6 +4,11 @@
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+# envs/*.tfvars = relevé de la topologie AWS (VPC, ARNs ALB, priorités listener),
+# pas de secret dedans : mot de passe RDS et credentials Lyra sont injectés dans
+# Secrets Manager hors Terraform. Sans cette exception, `*.tfvars` masquait tout
+# envs/ et la description de l'infrastructure n'était sauvegardée nulle part.
+!envs/*.tfvars
 crash.log
 crash.*.log
 override.tf
