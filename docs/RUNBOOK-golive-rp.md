@@ -183,6 +183,25 @@ Un 403 avec `Server: awselb/2.0` et un corps générique de ~118 octets = c'est
 l'ALB, pas l'application :
 `aws wafv2 get-web-acl-for-resource --resource-arn <arn-alb> --region eu-west-3`.
 
+**Contrôler les balises, pas seulement les codes.** Un `200` et un `canonical` juste
+ne disent rien du `title` que Google affichera. C'est ce contrôle manquant qui a laissé
+passer, jusqu'au 2026-08-26, le fait que **les 461 pages villes servaient le titre de
+leur département**. Trois URLs suffisent à le voir :
+
+```powershell
+foreach ($u in @("/test-psychotechnique/01/ain",
+                 "/test-psychotechnique/01/ain/bourg-en-bresse",
+                 "/medecins-agrees/rhone")) {
+  $html = curl.exe -s "https://www.reactionpermis.fr$u" | Out-String
+  if ($html -match "<title>(.*?)</title>") { $t = $Matches[1] } else { $t = "PAS DE TITLE" }
+  "{0,-46} {1}" -f $u, $t
+}
+```
+
+Attendu : un titre **propre à chaque URL**, la ville ne reprenant jamais celui de son
+département. Le relevé complet se fait avec
+`D:\reaction-permis\audits\sondes\releve-metas.php` (voir `preprod-vs-prod.md`).
+
 ---
 
 ## 7. Retour arrière, si besoin
@@ -213,3 +232,10 @@ Ce qui compte est reproduit à l'identique : priorité, hôtes, target group.
   laissé exprès une règle ALB de rollback.
 - **`public/robots.txt` est statique** : vérifier qu'il n'interdit rien, `APP_NOINDEX`
   n'agit que sur la balise meta.
+- 🔴 **La mesure s'arrête à la bascule.** L'ancienne production charge **GA4
+  `G-S6E8D9TWRE` et GTM `GTM-KGBGDR39`** (`reactionpermis-site/resources/views/includes/meta.blade.php`) ;
+  rp2026 ne charge **aucun traqueur**. Dès la bascule, la propriété GA4 et le conteneur
+  GTM cessent de recevoir des données, et l'historique devient incomparable. Prévenir
+  avant, pas après. ⚠️ L'ancienne production les charge **sans aucun bandeau de
+  consentement** : les remettre en place sans en profiter pour ajouter le recueil
+  rétablirait un manquement connu (cf. `RP-C1` du backlog technique).

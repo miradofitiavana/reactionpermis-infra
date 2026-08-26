@@ -442,20 +442,13 @@ Déploiement en ligne sur `preprod.reactionpermis.fr`. Sain :
   redirige, pas l'action `redirect` de l'ALB.
 - `canonical` = `https://preprod.reactionpermis.fr/…`, donc `APP_URL` est juste.
 - `<meta name="robots" content="noindex,nofollow">` présent : `APP_NOINDEX` agit.
-- Sitemap : 2358 URLs, 12 échantillonnées à pas régulier, **12/12 en 200**.
 - Site public intact : apex 301 → www, www 200, toujours servi par l'ancienne
   production (`Server: Apache/2.4.68`).
 
-**Fausse alerte levée** : `/livewire/livewire.js` répond 404, et c'est NORMAL.
-Livewire 3 (`FrontendAssets::boot()`) enregistre `/livewire/livewire.min.js` quand
-`config('app.debug')` est faux, et le `.js` non minifié uniquement en debug. La
-version minifiée répond 200. `cntp.fr` se comporte à l'identique — ce 404 y est
-consigné à tort comme un bloquant depuis son go-live.
-
-**Corrigé dans la foulée** : `public/robots.txt` annonçait
-`Sitemap: https://reactionpermis.fr/sitemap.xml` (l'apex) alors que le site live
-annonce la forme `www`. Servi tel quel en production, il aurait déclaré un sitemap
-répondant 301.
+Le sitemap, les URLs legacy, les liens internes et les images relèvent de l'audit
+de contenu, tenu à part dans **`docs/preprod-vs-prod.md`** — c'est là que vivent
+les mesures et les fausses alertes déjà levées (dont le 404 attendu sur
+`/livewire/livewire.js`).
 
 **Le back-office fonctionne** — et le 403 qu'on obtient en le sondant est un
 artefact de la sonde, pas un défaut.
@@ -482,120 +475,25 @@ deux règles de flood, `LyraWhitelist`, `Allow_URLs`, puis six groupes managés 
 `BotControlRuleSet`. Aucun `AdminProtectionRuleSet` — le filtrage vient du bot
 control, pas d'une règle de chemin. **Rien à modifier.**
 
-## 5 ter. Audit de cohérence préprod vs production (2026-08-25)
+## 5 ter. Audit de cohérence préprod vs production
 
-Méthode : les **574 URLs du sitemap de production** rejouées une à une contre la
-préprod en suivant les redirections, plus les liens internes de 9 pages
-représentatives. Refaire cet audit après tout déploiement qui touche au contenu.
+Sorti dans son propre document : **`docs/preprod-vs-prod.md`**. Il porte la
+méthode, les mesures, les défauts corrigés et ce qui reste ouvert, et il est fait
+pour être rejoué — après tout déploiement qui touche au contenu, puis une dernière
+fois juste avant le go-live.
 
-⚠️ Sonder en série pour valider un défaut : une passe à 6 requêtes parallèles a
-produit un faux 404 sur `/favicon-16x16.png`, qui répond 200 en réalité.
+**État au 2026-08-25**, après les migrations `000120` à `000124` :
 
-**Bon état d'ensemble** : 436 des 574 URLs legacy répondent **200 en direct, zéro
-redirection** — la structure d'URL est préservée à l'identique. 382 des 389 liens
-internes relevés répondent 200.
-
-### 🔴 A. Les 138 articles du blog répondent 404 — bloquant go-live
-
-Les 138 URLs en défaut sont **toutes** des `/post/*`, soit la totalité du blog.
-`/post` répond 200 mais ne liste **aucun** article. Le même article répond 200 en
-production et 404 sur **dev comme sur préprod** : le contenu n'a jamais été
-importé dans `rp2026_articles`, ce n'est pas un oubli de migration en prod.
-
-`sitev3_pages` ne porte que `meta_title` et `meta_desc` (cf. la migration
-`…_000101_seed_rp2026_seo_metas_from_legacy`) : les **metas** des 138 articles
-sont donc déjà dans `rp2026_seo_metas`, mais **pas les corps**. La source du
-contenu reste à identifier (autre table legacy, ou export du site actuel).
-
-La commande maison `php artisan seo:check-legacy-urls --only-failures` est
-justement bâtie pour ça : elle distingue « SANS ROUTE » de « SANS CONTENU »,
-précisément parce qu'une route de blog résout toujours même sans article.
-
-Trois issues possibles, à arbitrer : importer le contenu avant la bascule ;
-rediriger les 138 URLs vers une page pertinente (perte de contenu, mais pas de
-404) ; ou basculer en assumant 138 URLs indexées perdues. La première est la seule
-sans coût SEO.
-
-### 🔴 B. Le menu pointe vers 5 pages inexistantes, sur tout le site
-
-Présents dans le menu ou le pied de page, donc sur **chacune** des 9 pages
-sondées :
-
-| URL | État |
+| Contrôle | Résultat |
 |---|---|
-| `/guides-test-psychotechnique` | 404 |
-| `/guides-test-psychotechnique/comment-se-deroule-le-test` | 404 |
-| `/guides-test-psychotechnique/prix-du-test` | 404 |
-| `/guides-test-psychotechnique/s-entrainer-au-test` | 404 |
-| `/lexique-permis-test-psychotechnique` | 404 (ses 4 pages filles répondent 200) |
+| 574 URLs du sitemap de prod rejouées | **574 / 574 en 200 direct**, aucune redirection |
+| Liens internes (10 pages) | **409 / 409 en 200** |
+| Images du blog | toutes sur le bon CloudFront, toutes en 200 |
 
-Cause : `…_000107_wire_menus_to_seo_urls` câble le menu sur ces URLs, et
-`…_000109_seed_guides_content_from_maquette` ne fait qu'un **UPDATE** — son
-`if (! DB::table('rp2026_pages')->where('slug', $slug)->exists()) continue;`
-ignore silencieusement les pages absentes. Aucune migration ne les crée.
+Reste ouvert : **104 URLs servies mais absentes du sitemap** — dont 96 pages
+départementales de médecins, indexées aujourd'hui. Détail dans le document.
 
-Cinq redirections legacy de `routes/web.php` (lignes 191-201) atterrissent aussi
-sur ces 404 : `/guides`, `/lexique`,
-`/comment-se-deroule-un-test-psychotechnique-du-permis`,
-`/prix-du-test-psychotechnique-95-ttc`,
-`/s-entrainer-au-test-psychotechnique-nos-conseils`. Aucune n'est dans le sitemap
-de production, donc **aucune URL indexée n'est touchée** — mais un visiteur qui
-suit un ancien lien reçoit un 301 suivi d'un 404.
-
-**Cause trouvée le 2026-08-25**, et elle est plus large que le menu : la prod ne
-contient que les **4 premiers** termes du tableau `$lexique` de
-`2026_07_02_000061_seed_cms_content_maquette_2026`, dans l'ordre exact du tableau.
-Ce seed s'est interrompu à sa 5ᵉ itération ; les 8 termes suivants et les 6 guides
-n'ont jamais été insérés. MySQL n'encapsule pas les migrations dans une
-transaction (le DDL y provoque un commit implicite), les 4 premières insertions
-ont donc persisté malgré l'échec — et la migration figure quand même au journal,
-donc `migrate` ne la rejouera jamais.
-
-Les 2 hubs, `permis-probatoire` et `guide-comprendre-le-test` relèvent d'un autre
-problème : **aucune migration ne les crée**. Ils n'existaient en dev que parce
-qu'ils y ont été saisis à la main dans Filament.
-
-Correctif : `2026_08_25_000122_restore_missing_cms_pages.php` repose les 18 pages
-dans leur état final (slugs et metas du plan SEO, corps des guides depuis
-`database/data/maquette_guides.php`, hubs depuis la maquette de référence). Non
-destructive — les 4 termes rescapés ne sont pas touchés.
-
-⚠️ Leçon à retenir au-delà de ce cas : **une migration inscrite au journal ne
-prouve pas que son effet est complet** sur MySQL. Après tout seed volumineux,
-compter les lignes plutôt que se fier au journal.
-
-**Le lexique ne doit pas avoir de pages autonomes.** Dans la maquette, un terme
-affiche sa définition puis renvoie vers la page de fond correspondante
-(« Lettre 48SI » → « Permis invalidé », « Préfecture » → « Nos centres agréés »).
-Les servir comme des pages produisait 13 URLs d'une phrase, concurrentes des
-vraies sur les mêmes requêtes.
-
-`2026_08_25_000123_add_redirect_to_to_rp2026_pages.php` ajoute une colonne
-`redirect_to` et l'alimente pour les 12 termes de la maquette. Conséquences
-câblées : l'URL du terme répond **301**, les cartes du hub pointent
-**directement** sur la cible (plus aucun lien interne vers une 301), et ces pages
-**sortent du sitemap**. La définition reste en base et modifiable en back-office,
-un champ « Rediriger vers » a été ajouté au formulaire Filament.
-
-`permis-probatoire` reste sans cible : absent de la maquette, il avait été saisi à
-la main en dev. Il garde sa page tant qu'on ne lui en choisit pas une.
-
-### 🟠 C. 103 URLs servies mais absentes du sitemap
-
-Elles répondent 200 et sont déclarées dans le sitemap **de production** : après la
-bascule elles continueraient de fonctionner, mais cesseraient d'être annoncées.
-
-- 96 × `/medecins-agrees/<departement>` — seul le hub `/medecins-agrees` est listé.
-- 7 × `/test-psychotechnique/<dept>` : Creuse, Corse-du-Sud (+ Ajaccio),
-  Haute-Corse (+ Bastia), Lozère, Nièvre — vraisemblablement les départements sans
-  centre, exclus par la génération du sitemap.
-
-### 🟡 D. Mineur
-
-`/cgv_pdf`, lié depuis `/condition-generale-vente`, répond 404 en préprod — mais
-il répond **500 en production**. Défaut préexistant, pas une régression.
-
-## 5 quater. Import du blog WordPress (traite le point A du §5 ter)
+## 5 quater. Import du blog WordPress (traite le point A de l'audit)
 
 Le blog legacy est un WordPress installé **sous `/post/`** sur le même domaine.
 Deux choses à rapatrier : les articles, et les médias qu'ils référencent.
@@ -700,9 +598,10 @@ curl.exe -s -o NUL -w "index %{http_code}`n" -H "User-Agent: $UA" https://prepro
 curl.exe -s -o NUL -w "article %{http_code}`n" -H "User-Agent: $UA" https://preprod.reactionpermis.fr/post/les-defis-de-la-conduite-en-ville
 ```
 
-Puis rejouer l'audit du §5 ter : les 574 URLs du sitemap de production doivent
-toutes répondre 200, et le sitemap de la préprod passer d'environ 2358 à environ
-2496 URLs.
+Puis rejouer l'audit (`docs/preprod-vs-prod.md`). Mesuré le 2026-08-25 après
+l'import : **574/574 en 200 direct**, et le sitemap de la préprod passé de 2358 à
+**2502 URLs** (+138 articles, +7 guides, +2 hubs, +9 lexique, −12 termes qui
+redirigent et sortent donc du sitemap).
 
 ### 5q.5 Les 77 redirections du plugin Redirection
 
@@ -745,11 +644,23 @@ tant qu'aucun article n'existait.
 
 ## 6. Ce qui reste avant le go-live
 
-- Valider `/admin` (cf. ci-dessus) — à faire **maintenant**, pas après.
-- Décider si les contenus saisis à la main dans le Filament du dev doivent être
-  repris ; les seeds de migration ne couvrent que le contenu versionné.
-- Injecter les credentials Lyra de production et passer un paiement réel de bout
-  en bout, IPN comprise.
+**Fait au 2026-08-25** : `/admin` validé (200 avec un UA de navigateur), contenu
+du blog et pages CMS restaurés, audit de contenu à 574/574 et 409/409.
+
+**Reste :**
+
+- **Passer un paiement réel de bout en bout, IPN comprise.** C'est le seul chemin
+  qui traverse `organisme_reservations` en écriture et l'API organisme, et le seul
+  qu'aucune sonde HTTP ne couvre.
+- **Décider du sort du mot de passe Lyra de production** qui s'est affiché en
+  console le 2026-08-25. Le régénérer impose de changer
+  `WEB_API_REACTION_LYRA_PWD` côté API organisme **au même moment** : désynchronisés,
+  les clients sont débités sans que la réservation soit confirmée.
+- **96 pages départementales de médecins absentes du sitemap** — indexées
+  aujourd'hui, elles cesseraient d'être déclarées. Détail dans
+  `docs/preprod-vs-prod.md`.
+- **`permis-probatoire`** : seul terme du lexique sans cible de redirection, il
+  garde donc une page autonome et le libellé générique. À trancher en back-office.
 - `public/robots.txt` est un fichier **statique** : `APP_NOINDEX` n'agit que sur
   la balise meta. Sur la pré-prod le verrou par IP suffit (un crawler reçoit 403),
   mais il n'y a pas de second filet.
