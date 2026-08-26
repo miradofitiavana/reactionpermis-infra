@@ -1,16 +1,15 @@
-# Environnement PROD (compte aaaep prod 381492212876) — phase « pré-prod verrouillée ».
+# Environnement PROD (compte aaaep prod 381492212876) - phase GO-LIVE.
 #
-# Stratégie : on provisionne l'infra prod DÉFINITIVE, mais exposée sur
-# preprod.reactionpermis.fr et restreinte par IP (app_allowed_source_ips). Le
-# site public reactionpermis.fr continue d'être servi par la règle ALB historique
-# (priorité 60) pendant toute cette phase. Au go-live :
-#   1. app_fqdn → www.reactionpermis.fr, app_additional_hosts → ["reactionpermis.fr"]
-#   2. app_allowed_source_ips → []
-#   3. app_acm_certificate_domain → "reactionpermis.fr" (on cesse d'émettre le nôtre)
-#   4. app_route53_zone_id → "" (les records existent déjà, on ne les adopte pas)
-#   5. app_extra_env : APP_NOINDEX → "false"
-#   6. apply (sans effet visible : 60 < 200, l'ancienne règle gagne), vérifier,
-#      PUIS supprimer la règle 60 — c'est ça, la bascule.
+# Le stack sert désormais www.reactionpermis.fr + l'apex, sans verrou par IP.
+# L'apply de ces valeurs n'a AUCUN effet visible tant que la règle ALB historique
+# de priorité 60 existe : l'ALB évalue par priorité croissante et 60 gagne sur
+# notre 200. La bascule elle-même est la suppression de cette règle 60, à faire
+# après vérification des cibles saines (cf. RUNBOOK-golive-rp.md §4 et §5).
+#
+# Retour en pré-prod verrouillée, si besoin :
+#   app_fqdn = "preprod.reactionpermis.fr", app_additional_hosts = [],
+#   app_route53_zone_id = "Z0640180MSVICF0UZFEL", APP_NOINDEX = "true",
+#   app_allowed_source_ips = ["<ip du poste>/32"]
 #
 # Valeurs réseau/ALB/RDS reprises de la topologie prod relevée le 2026-08-12 pour
 # cntp-2026 (même VPC, même ALB, même Aurora). À RE-CONFIRMER à la CLI avant le
@@ -64,25 +63,25 @@ shared_alb_listener_https_arn = "arn:aws:elasticloadbalancing:eu-west-3:38149221
 shared_alb_listener_http_arn = "arn:aws:elasticloadbalancing:eu-west-3:381492212876:listener/app/aaaep-site-web-alb/da203a6f6728345c/1391cfd4ea9deb2b"
 
 # ─── FQDN ─────────────────────────────────────────────────────────────────────
-# Phase pré-prod. Au go-live ce sera "www.reactionpermis.fr" (l'hôte CANONIQUE :
-# l'apex répond 301 vers www aujourd'hui, et app_fqdn alimente APP_URL donc les
-# canonical/og:url/sitemap — y mettre l'apex ferait déclarer à toutes les pages
-# une URL canonique redirigée).
-app_fqdn             = "preprod.reactionpermis.fr"
-app_additional_hosts = []
+# L'hôte CANONIQUE est www, et non l'apex : app_fqdn n'alimente pas que le
+# routage, il alimente APP_URL, d'où Laravel tire les canonical, og:url et les
+# <loc> du sitemap. Or docker/nginx.conf renvoie l'apex nu en 301 vers www. Mettre
+# l'apex ici ferait déclarer à chaque page une URL canonique redirigée, un défaut
+# invisible : le site répondrait 200 partout.
+#
+# Les deux hôtes tiennent dans la MÊME règle de listener (concat de app_fqdn et
+# app_additional_hosts), comme la règle 60 qu'on remplace.
+app_fqdn             = "www.reactionpermis.fr"
+app_additional_hosts = ["reactionpermis.fr"]
 
-# Zone Route53 reactionpermis.fr du compte prod (relevée 2026-08-25, 20 records).
-# Renseignée, Terraform pose le record preprod + les CNAME de validation ACM et
-# attend l'émission du certificat : apply en une passe.
+# Vide au go-live, volontairement : les records de reactionpermis.fr et de
+# www.reactionpermis.fr existent déjà et sont gérés hors Terraform depuis toujours.
+# Les adopter n'apporterait rien et rendrait un retour arrière dangereux, une
+# erreur sur cet état supprimant l'apex du domaine.
 #
-# ID NU, sans le préfixe `/hostedzone/` que renvoie l'API : le provider stocke la
-# forme nue dans l'état, donc la forme préfixée produit un diff permanent, et
-# certaines ressources la rejettent carrément.
-#
-# Au go-live cette variable repasse à "" — les records de reactionpermis.fr et
-# www.reactionpermis.fr existent déjà et les adopter rendrait un retour arrière
-# dangereux (une erreur d'état supprimerait l'apex du domaine).
-app_route53_zone_id = "Z0640180MSVICF0UZFEL"
+# Effet de bord VOULU : l'alias preprod.reactionpermis.fr posé par ce stack est
+# détruit à l'apply. La zone reste Z0640180MSVICF0UZFEL si on doit y revenir.
+app_route53_zone_id = ""
 
 # Certificat de la fondation, créé hors Terraform. Relevé le 2026-08-25 :
 # arn:…:certificate/a015d790-a196-4d2b-82ca-739d469d5ea0, ISSUED, SAN
@@ -100,12 +99,10 @@ app_acm_certificate_domain = "reactionpermis.fr"
 # 200 = forward, 201 = règle 403 du verrou (prise implicitement).
 app_listener_rule_priority = 200
 
-# Mode pré-prod verrouillée. ⚠️ L'IP du poste change (FAI non fixe) : la
-# re-vérifier à chaque session (`curl https://checkip.amazonaws.com`) sinon on se
-# verrouille soi-même dehors. Relevée le 2026-08-25.
-# Vider cette liste = site public : retire la condition source_ip des règles de
-# forward ET supprime les deux règles 403 qui les doublaient (count à 0).
-app_allowed_source_ips = ["88.138.235.45/32"]
+# Liste vide = site public. Concrètement, l'apply retire la condition source_ip
+# des deux règles de forward (443 et 80) et DÉTRUIT les deux règles 403 qui les
+# doublaient (leur count tombe à 0).
+app_allowed_source_ips = []
 
 # Branches autorisées à déployer sur cet environnement (trust policy OIDC). Doit
 # rester aligné avec les triggers de deploy.yml : main et release/**. Un
@@ -130,11 +127,13 @@ app_env   = "production"
 app_debug = false
 
 app_extra_env = {
-  # Verrou SEO : tant que le site est servi sous preprod.reactionpermis.fr, le
-  # layout injecte <meta name="robots" content="noindex,nofollow">.
-  # ⚠️ À PASSER À "false" au go-live, sinon reactionpermis.fr part en production
-  # en noindex et disparaît de l'index Google.
-  APP_NOINDEX = "true"
+  # Verrou SEO levé pour le go-live. À "true", le layout injecte
+  # <meta name="robots" content="noindex,nofollow"> sur TOUTES les pages : le site
+  # répondrait 200 partout tout en sortant de l'index Google.
+  #
+  # public/robots.txt est un fichier STATIQUE : cette variable n'agit que sur la
+  # balise meta, il n'y a pas de second filet côté robots.txt.
+  APP_NOINDEX = "false"
 }
 
 # ─── Auto start/stop ECS ──────────────────────────────────────────────────────
