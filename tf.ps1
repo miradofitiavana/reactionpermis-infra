@@ -33,6 +33,15 @@ $ErrorActionPreference = 'Stop'
 $varFile = "envs/$Environment.tfvars"
 $planFile = "tfplan.$Environment"
 
+# Valeurs sensibles hors depot (DSN Sentry, cf. variables.tf). Passe en second
+# -var-file : Terraform fusionne les fichiers dans l'ordre, le dernier gagne.
+# Absent = variables a leur defaut (Sentry desactive), aucun avertissement.
+$secretVarFile = "envs/$Environment.secret.tfvars"
+$varFileArgs = @("-var-file=$varFile")
+if (Test-Path $secretVarFile) {
+    $varFileArgs += "-var-file=$secretVarFile"
+}
+
 if (-not (Test-Path $varFile)) {
     Write-Error "Fichier de variables introuvable : $varFile"
     exit 1
@@ -43,7 +52,7 @@ switch ($Action) {
         # -out : on fige le plan pour que l'apply applique EXACTEMENT ce qui a ete
         # relu, et n'ait aucune question a poser. Une invite de confirmation sans
         # terminal interactif echoue en EOF et laisse un lock orphelin.
-        terraform plan "-out=$planFile" "-var-file=$varFile"
+        terraform plan "-out=$planFile" @varFileArgs
     }
     'apply' {
         if (-not (Test-Path $planFile)) {

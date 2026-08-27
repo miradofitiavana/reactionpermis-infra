@@ -9,6 +9,10 @@
 # Secrets Manager hors Terraform. Sans cette exception, `*.tfvars` masquait tout
 # envs/ et la description de l'infrastructure n'était sauvegardée nulle part.
 !envs/*.tfvars
+# Sauf les fichiers de valeurs sensibles (DSN Sentry) : jamais commités, un
+# .example par environnement documente leur forme.
+envs/*.secret.tfvars
+!envs/*.secret.tfvars.example
 crash.log
 crash.*.log
 override.tf

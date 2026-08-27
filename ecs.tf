@@ -128,7 +128,18 @@ resource "aws_ecs_task_definition" "app" {
       # Doit rester l'endpoint REACTION de l'API organisme : c'est lui qui pose
       # MP_SITE_LYRA_CONFIRMED_REACTION sur la réservation.
       { name = "LYRA_IPN_URL", value = var.lyra_ipn_url },
+
       ],
+      # Sentry : PROD SEULEMENT, décision du 2026-08-26. Le dev n'a ni DSN ni
+      # SENTRY_ENVIRONMENT, donc le SDK y reste inerte même si quelqu'un remplit
+      # un envs/dev.secret.tfvars par erreur. SENTRY_RELEASE est déjà dans
+      # l'image (Dockerfile). Traces de performance coupées (quota) :
+      # surchargeable via app_extra_env pour observer une période.
+      local.is_prod && var.sentry_dsn != "" ? [
+        { name = "SENTRY_LARAVEL_DSN", value = var.sentry_dsn },
+        { name = "SENTRY_ENVIRONMENT", value = var.environment },
+        { name = "SENTRY_TRACES_SAMPLE_RATE", value = "0" },
+      ] : [],
       # Permet d'ajouter / overrider des env vars sans modifier ce fichier.
       [for k, v in var.app_extra_env : { name = k, value = v }],
     )

@@ -283,3 +283,24 @@ variable "efs_throughput_mode" {
   type        = string
   default     = "bursting"
 }
+
+# ─── Sentry (suivi d'erreurs) ─────────────────────────────────────────────────
+#
+# Le DSN n'est pas un secret au sens strict (il n'autorise que l'ÉCRITURE
+# d'events, jamais la lecture), mais un DSN public permet de saturer le quota
+# mensuel du projet. Il ne vit donc ni dans envs/<env>.tfvars (commités, cf.
+# .gitignore) ni dans Secrets Manager : ecs.tf référence les clés de ce secret
+# une par une et ECS refuse de démarrer la task si l'une manque, ce qui
+# transformerait un simple oubli de DSN en site hors ligne.
+#
+# Prod seulement : ecs.tf ne l'injecte que si local.is_prod. Lu depuis
+# envs/prod.secret.tfvars (gitignoré, passé en second -var-file par tf.ps1 s'il
+# existe). Vide = variable absente de la task = SDK inerte côté Laravel.
+variable "sentry_dsn" {
+  description = "DSN Sentry (SENTRY_LARAVEL_DSN). Vide = Sentry désactivé. Prod seulement, fourni via envs/prod.secret.tfvars."
+  type        = string
+  default     = ""
+  # `sensitive` masque la valeur dans la sortie de plan/apply. Elle reste lisible
+  # dans le tfstate (comme toute env var de la task) : le bucket state est privé.
+  sensitive = true
+}

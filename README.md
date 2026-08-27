@@ -129,6 +129,7 @@ démarrer la task si l'une manque.
 | `lyra_public_key` | `envs/<env>.tfvars` | publique par nature : chargée par le navigateur |
 | `lyra_endpoint` | `envs/<env>.tfvars` | `https://api.payzen.eu` |
 | `lyra_ipn_url` | `envs/<env>.tfvars` | endpoint REACTION de l'API organisme |
+| `sentry_dsn` | `envs/prod.secret.tfvars` (gitignoré, chargé par `tf.ps1`) | DSN Sentry, prod seulement ; écriture d'events uniquement mais quota saturable si public |
 
 Quatre pièges à connaître :
 
