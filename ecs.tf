@@ -101,7 +101,9 @@ resource "aws_ecs_task_definition" "app" {
       { name = "SESSION_DRIVER", value = "file" },
       { name = "CACHE_STORE", value = "file" },
       { name = "QUEUE_CONNECTION", value = "sync" },
-      { name = "RESPONSE_CACHE_DRIVER", value = "file" },
+      # Store dédié au cache HTML (config/cache.php côté app) : avec `file`, le
+      # `flush()` de responsecache vidait aussi le cache applicatif partagé.
+      { name = "RESPONSE_CACHE_DRIVER", value = "responses" },
 
       # Database — Aurora MySQL partagé
       { name = "DB_CONNECTION", value = "mysql" },
