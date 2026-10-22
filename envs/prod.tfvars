@@ -114,12 +114,15 @@ github_deploy_branch_patterns = ["main", "release/*"]
 # Dimensionnement de production dès la pré-prod, volontairement : le go-live ne
 # doit changer QUE les conditions de routage. Modifier en même temps la forme du
 # calcul ajouterait un facteur de risque à l'instant le plus critique.
-# 2 tasks = haute disponibilité, et aucun instant à zéro capacité pendant un
-# déploiement.
+# 1 task depuis le 2026-10-22 (coût ; charge mesurée : CPU moyen 2-4 %, mémoire
+# max 42 % sur 2 tasks). Pas de redondance : une task qui tombe coupe le site le
+# temps d'un redémarrage. Le déploiement reste sans coupure (min 100 % / max 200 %).
+# `desired_count` est dans `ignore_changes` (ecs.tf) : ce fichier ne pilote pas le
+# service en place, le réglage réel passe par `aws ecs update-service`.
 app_image_tag      = "latest" # le workflow pousse <env>-<sha>-<ts> ET latest, puis force-new-deployment
 app_cpu            = 1024
 app_memory         = 2048
-app_desired_count  = 2
+app_desired_count  = 1
 app_container_port = 8080
 log_retention_days = 90
 
