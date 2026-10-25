@@ -5,6 +5,10 @@
 #   - DB_PASSWORD    : mot de passe MySQL Laravel
 #   - LYRA_USERNAME  : identifiant boutique Lyra (paiement du test psychotechnique)
 #   - LYRA_PWD       : mot de passe boutique Lyra
+#     Ces deux-là ne sont lues ici que si shared_secrets_env = null (prod aujourd'hui).
+#     Sinon la task les prend dans shared/<env>/lyra-rp (shared_secrets.tf) et elles
+#     ne servent plus qu'aux anciennes révisions, avant leur retrait (README §2 quater).
+#     Les placeholders restent : un environnement sans secrets partagés en a besoin.
 #
 # Terraform crée le CONTENEUR mais jamais les valeurs : tout ce qu'il manipule
 # atterrit en clair dans le tfstate, y compris le résultat d'un `data` source —

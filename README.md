@@ -124,11 +124,11 @@ démarrer la task si l'une manque.
 
 | Variable | Où la mettre | Pourquoi |
 |---|---|---|
-| `LYRA_USERNAME` | Secrets Manager (`put-secret-value`) | credential API |
-| `LYRA_PWD` | Secrets Manager (`put-secret-value`) | credential API |
-| `lyra_public_key` | `envs/<env>.tfvars` | publique par nature : chargée par le navigateur |
+| `LYRA_USERNAME` | dev : secret partagé `shared/dev/lyra-rp` (`LYRA_USERNAME`) ; prod : secret applicatif (`put-secret-value`) | credential API |
+| `LYRA_PWD` | dev : secret partagé `shared/dev/lyra-rp` (`LYRA_PASSWORD`) ; prod : secret applicatif (`put-secret-value`) | credential API, le même que vérifie l'API organisme |
+| `LYRA_PK` | dev : secret partagé `shared/dev/lyra-rp` (`LYRA_PUBLIC_KEY`) ; prod : `lyra_public_key` dans `envs/prod.tfvars` | publique par nature : chargée par le navigateur |
 | `lyra_endpoint` | `envs/<env>.tfvars` | `https://api.payzen.eu` |
-| `lyra_ipn_url` | `envs/<env>.tfvars` | endpoint REACTION de l'API organisme |
+| `lyra_ipn_url` | `envs/<env>.tfvars` | endpoint REACTION de l'API organisme du même environnement : `https://dev-organisme.aaaep.fr/api/v3/...` en dev (ECS, un seul `/api`), `https://organisme.aaaep.fr/api/api/v3/...` en prod (EC2) |
 | `sentry_dsn` | `envs/prod.secret.tfvars` (gitignoré, chargé par `tf.ps1`) | DSN Sentry, prod seulement ; écriture d'events uniquement mais quota saturable si public |
 
 Quatre pièges à connaître :
@@ -147,6 +147,41 @@ Quatre pièges à connaître :
 
 Tant que `LYRA_USERNAME` / `LYRA_PWD` sont sur leur placeholder, le tunnel affiche
 « Paiement non configuré » au lieu de planter : on peut déployer sans les clés.
+
+### 2 quater. Secrets partagés (aaaep-shared-infra)
+
+Avec `shared_secrets_env` posé dans `envs/<env>.tfvars` (aujourd'hui `"dev"` en dev,
+absent en prod), la task lit `LYRA_USERNAME`, `LYRA_PWD` et `LYRA_PK` dans
+`shared/<env>/lyra-rp`, le secret que lit aussi l'API organisme pour valider l'IPN
+(`shared_secrets.tf`). Une rotation se fait dans `D:\aaaep\aaaep-shared-infra`
+(`.\scripts\secrets.ps1 -Env dev set lyra-rp LYRA_PASSWORD`, puis
+`.\scripts\rotate.ps1 -Env dev lyra-rp`), plus jamais dans le secret applicatif.
+
+Prérequis avant le plan : `aaaep-shared-infra` appliqué dans le compte et
+`.\scripts\secrets.ps1 -Env dev status` à `ok` pour `lyra-rp`. Sinon le plan échoue
+(data source introuvable) ou la task ne démarre pas (secret sans valeur).
+
+L'apply enregistre une nouvelle révision et le service la prend aussitôt : il suit
+`aws_ecs_task_definition.app.arn`, sans `ignore_changes` sur `task_definition`, et la
+CI ne fait qu'un `--force-new-deployment` de la révision courante.
+
+Les clés `LYRA_USERNAME` et `LYRA_PWD` restent dans le secret applicatif dev tant que
+des révisions antérieures peuvent redémarrer. Une fois le service stable sur la
+nouvelle révision, les retirer hors Terraform (le secret est en `ignore_changes`) :
+
+```powershell
+$id = "reactionpermis-dev-app"
+$s = aws secretsmanager get-secret-value --secret-id $id --query SecretString --output text | ConvertFrom-Json
+"LYRA_USERNAME", "LYRA_PWD" | ForEach-Object { $s.PSObject.Properties.Remove($_) }
+$p = Join-Path $env:TEMP "rp-dev-app-secret.json"
+[IO.File]::WriteAllText($p, ($s | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding $false))
+aws secretsmanager put-secret-value --secret-id $id --secret-string "file://$p" --query VersionId --output text
+Remove-Item $p
+```
+
+`put-secret-value` remplace tout le JSON : la commande relit le secret, n'en retire que
+ces deux clés et repousse le reste (`APP_KEY`, `DB_PASSWORD`). Passer par un fichier
+UTF-8 sans BOM, jamais par `--secret-string $j` (quoting PowerShell, JSON cassé).
 
 ### 3. Init + plan + apply
 

@@ -214,15 +214,35 @@ variable "app_extra_env" {
 # client est débité mais la réservation n'est jamais confirmée en base.
 #
 # Répartition volontaire :
-#   - username + password → injectés dans Secrets Manager HORS Terraform
-#                           (cf. secrets.tf) : pas de variable ici, sinon la
-#                           valeur transiterait par le tfstate
-#   - public key          → env var simple : elle est envoyée au NAVIGATEUR par le
-#                           formulaire embarqué Krypton, ce n'est pas un secret
+#   - username + password → Secrets Manager HORS Terraform : secret partagé
+#                           shared/<env>/lyra-rp si shared_secrets_env est posé
+#                           (shared_secrets.tf), secret applicatif sinon (secrets.tf).
+#                           Pas de variable ici, sinon la valeur transiterait par le
+#                           tfstate
+#   - public key          → secret partagé avec les deux autres si shared_secrets_env
+#                           est posé, env var simple sinon (lyra_public_key) : elle
+#                           est envoyée au NAVIGATEUR par Krypton, ce n'est pas un secret
 #   - endpoint + IPN      → env vars simples, ce sont des URLs de configuration
 
+variable "shared_secrets_env" {
+  description = <<-EOT
+    Environnement des secrets partagés de aaaep-shared-infra à lire (shared/<env>/lyra-rp),
+    par exemple "dev". null = pas de secret partagé : identifiants Lyra lus dans le secret
+    applicatif et LYRA_PK dans lyra_public_key. Ne le poser qu'une fois aaaep-shared-infra
+    appliqué dans ce compte ET la valeur poussée (secrets.ps1 status à ok) : sinon le plan
+    échoue (data source introuvable) ou la task ne démarre pas (secret sans version).
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.shared_secrets_env == null || contains(["dev", "prod"], coalesce(var.shared_secrets_env, "dev"))
+    error_message = "shared_secrets_env vaut null, \"dev\" ou \"prod\"."
+  }
+}
+
 variable "lyra_public_key" {
-  description = "Clé publique Lyra (LYRA_PK). Publique par nature : chargée côté navigateur par le formulaire Krypton."
+  description = "Clé publique Lyra (LYRA_PK), utilisée seulement si shared_secrets_env = null. Publique par nature : chargée côté navigateur par le formulaire Krypton."
   type        = string
   default     = ""
 }

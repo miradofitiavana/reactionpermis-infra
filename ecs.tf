@@ -121,15 +121,23 @@ resource "aws_ecs_task_definition" "app" {
 
       # Trust proxies : ALB termine TLS, X-Forwarded-* headers à respecter.
       { name = "TRUSTED_PROXIES", value = "*" },
+      ],
 
       # Paiement Lyra / PayZen (tunnel de réservation).
       # LYRA_PK n'est pas un secret : le formulaire embarqué Krypton la charge dans
-      # le navigateur. Seuls username et password passent par Secrets Manager.
-      { name = "LYRA_PK", value = var.lyra_public_key },
-      { name = "LYRA_ENDPOINT", value = var.lyra_endpoint },
-      # Doit rester l'endpoint REACTION de l'API organisme : c'est lui qui pose
-      # MP_SITE_LYRA_CONFIRMED_REACTION sur la réservation.
-      { name = "LYRA_IPN_URL", value = var.lyra_ipn_url },
+      # le navigateur. Sans secrets partagés (prod aujourd'hui), elle vient de tfvars ;
+      # avec, elle vient de shared/<env>/lyra-rp avec l'identifiant de la même boutique
+      # (bloc `secrets` plus bas). Liste à part pour garder l'ordre des variables, donc
+      # un plan sans changement, là où les secrets partagés ne sont pas branchés.
+      contains(keys(local.shared_secret_vars), "LYRA_PK") ? [] : [
+        { name = "LYRA_PK", value = var.lyra_public_key },
+      ],
+
+      [
+        { name = "LYRA_ENDPOINT", value = var.lyra_endpoint },
+        # Doit rester l'endpoint REACTION de l'API organisme : c'est lui qui pose
+        # MP_SITE_LYRA_CONFIRMED_REACTION sur la réservation.
+        { name = "LYRA_IPN_URL", value = var.lyra_ipn_url },
 
       ],
       # Sentry : PROD SEULEMENT, décision du 2026-08-26. Le dev n'a ni DSN ni
@@ -148,15 +156,22 @@ resource "aws_ecs_task_definition" "app" {
 
     # Env vars sensibles : ECS les résout depuis Secrets Manager à la volée.
     # Le conteneur ne voit que la valeur finale (pas le JSON enveloppe).
-    secrets = [
-      { name = "APP_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:APP_KEY::" },
-      { name = "DB_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:DB_PASSWORD::" },
-      # Identifiants boutique Lyra. La syntaxe `:CLE::` demande a ECS d'extraire une
-      # seule clé du JSON du secret (les deux `:` finaux = version-stage et
-      # version-id laissés vides, donc « version courante »).
-      { name = "LYRA_USERNAME", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_USERNAME::" },
-      { name = "LYRA_PWD", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_PWD::" },
-    ]
+    # La syntaxe `:CLE::` demande a ECS d'extraire une seule clé du JSON du secret (les
+    # deux `:` finaux = version-stage et version-id laissés vides, donc « version courante »).
+    secrets = concat(
+      [
+        { name = "APP_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:APP_KEY::" },
+        { name = "DB_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:DB_PASSWORD::" },
+      ],
+      # Identifiants boutique Lyra : depuis le secret applicatif tant que les secrets
+      # partagés ne sont pas branchés sur cet environnement (shared_secrets_env = null),
+      # depuis shared/<env>/lyra-rp sinon (shared_secrets.tf). Jamais les deux à la fois.
+      var.shared_secrets_env == null ? [
+        { name = "LYRA_USERNAME", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_USERNAME::" },
+        { name = "LYRA_PWD", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_PWD::" },
+      ] : [],
+      local.shared_secret_task_entries,
+    )
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -177,6 +192,17 @@ resource "aws_ecs_task_definition" "app" {
       startPeriod = 30
     }
   }])
+
+  # Une task démarrée avant que le rôle d'exécution puisse lire les secrets partagés échouerait
+  # (ResourceInitializationError) : la révision n'est enregistrée qu'après l'attachement.
+  depends_on = [aws_iam_role_policy_attachment.task_execution_shared]
+
+  lifecycle {
+    precondition {
+      condition     = length(local.shared_secret_overlap) == 0
+      error_message = "Variables à la fois dans app_extra_env et dans les secrets partagés : ${join(", ", local.shared_secret_overlap)}. Les retirer de app_extra_env, la valeur vient désormais de aaaep-shared-infra."
+    }
+  }
 }
 
 resource "aws_ecs_service" "app" {

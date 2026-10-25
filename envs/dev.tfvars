@@ -60,18 +60,19 @@ app_extra_env = {
 # ⚠️ Utiliser les clés de TEST de la boutique sur cet environnement. Le mode test
 # ne se choisit pas par l'URL (endpoint identique) mais par le jeu de clés.
 #
-# ⚠️ La réservation, elle, est écrite dans l'Aurora du compte dev — pas dans celle
-# de la prod. En revanche `lyra_ipn_url` ci-dessous pointe sur l'API organisme de
-# PRODUCTION : c'est elle qui reçoit la notification de paiement. Le confirmer
-# avant tout test d'encaissement de bout en bout.
-#
-# username + password → injectés dans Secrets Manager par put-secret-value, jamais
-# dans ce fichier ni dans le tfstate. Voir secrets.tf.
-lyra_public_key = "84578459:testpublickey_bQosKbpwsFMgwNaX0F7GUsxSgOgTwJUEO4XuIoRmgj5Fr" # clé publique de la boutique de test, à remplir
-lyra_endpoint   = "https://api.payzen.eu"
-# Endpoint REACTION de l'API organisme. Pointer ailleurs ferait enregistrer le
-# paiement sous une autre marque.
-lyra_ipn_url = "https://organisme.aaaep.fr/api/api/v3/reservations-paiement-reaction"
+# Identifiant, mot de passe ET clé publique viennent du secret partagé
+# shared/dev/lyra-rp (aaaep-shared-infra), le même que lit l'API organisme dev pour
+# vérifier le kr-hash de l'IPN (WEB_API_REACTION_LYRA_PWD) : une seule copie, donc
+# plus de désynchronisation possible entre les deux. lyra_public_key n'est plus lu ici.
+shared_secrets_env = "dev"
+lyra_endpoint      = "https://api.payzen.eu"
+# Endpoint REACTION de l'API organisme DE DEV (ECS, Laravel à la racine du domaine :
+# un seul /api, contrairement à l'EC2 de prod en /api/api). La réservation est écrite
+# dans l'Aurora du compte dev : la notification doit arriver à l'API qui lit cette
+# base. Viser la prod ferait valider, avec un paiement de test, la réservation de
+# prod portant le même id. Pointer sur un autre endpoint que -reaction ferait en
+# outre enregistrer le paiement sous une autre marque.
+lyra_ipn_url = "https://dev-organisme.aaaep.fr/api/v3/reservations-paiement-reaction"
 
 # ─── Auto start/stop ECS (économie hors heures travail) ──────────────────────
 # Lun-Ven 7h30 → start, Lun-Ven 23h30 → stop. Weekend = restera off.
