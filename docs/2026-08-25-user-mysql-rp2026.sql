@@ -62,6 +62,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON aaaep_aaaeporganisme.rp2026_site_setting
 GRANT SELECT, INSERT, UPDATE, DELETE ON aaaep_aaaeporganisme.rp2026_home_settings         TO 'rp2026'@'10.0.%';
 GRANT SELECT, INSERT, UPDATE, DELETE ON aaaep_aaaeporganisme.rp2026_social_links          TO 'rp2026'@'10.0.%';
 GRANT SELECT, INSERT, UPDATE, DELETE ON aaaep_aaaeporganisme.rp2026_seo_metas             TO 'rp2026'@'10.0.%';
+-- Commentaires du blog (DA-1719) : UPDATE pour la modération et l'effacement des IP,
+-- DELETE pour la purge comments:purge et la suppression définitive.
+GRANT SELECT, INSERT, UPDATE, DELETE ON aaaep_aaaeporganisme.rp2026_comments              TO 'rp2026'@'10.0.%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON aaaep_aaaeporganisme.rp2026_faqs                  TO 'rp2026'@'10.0.%';
+-- Journal des modifications : en ajout seul, une ligne écrite n'est jamais modifiée.
+GRANT SELECT, INSERT ON aaaep_aaaeporganisme.rp2026_journal_modifications TO 'rp2026'@'10.0.%';
 
 -- Lecture seule : l'application ne joue pas les migrations, mais Laravel lit ce
 -- journal au boot de certaines commandes artisan (`migrate:status`, et le
@@ -100,7 +106,8 @@ FLUSH PRIVILEGES;
 
 -- ─── 5. Vérification ────────────────────────────────────────────────────────
 SHOW GRANTS FOR 'rp2026'@'10.0.%';
--- 25 GRANT posés au total : 13 DML applicatifs, 1 SELECT sur le journal,
+-- 28 GRANT posés au total : 15 DML applicatifs, 1 SELECT+INSERT sur le journal
+-- des modifications, 1 SELECT sur le journal des migrations,
 -- 9 SELECT legacy, 1 SELECT+INSERT (réservations), 1 INSERT (candidatures).
 -- SHOW GRANTS regroupe par jeu de privilèges, le nombre de LIGNES affichées sera
 -- donc plus petit. Ce qui compte : la ligne `*.*` doit être un simple USAGE, et
