@@ -20,15 +20,31 @@ locals {
   # les clés normalisées du catalogue de aaaep-shared-infra (secrets.catalog.json).
   # LYRA_PK n'est pas sensible (le navigateur la reçoit), mais elle désigne la boutique : la
   # lire au même endroit que l'identifiant garantit qu'elles restent cohérentes.
-  # Rien d'autre à brancher : l'application n'utilise ni Brevo, ni Trustpilot, ni Alma.
-  shared_secret_vars = var.shared_secrets_env == null ? {} : {
-    LYRA_USERNAME = { secret = "lyra-rp", key = "LYRA_USERNAME" }
-    LYRA_PWD      = { secret = "lyra-rp", key = "LYRA_PASSWORD" }
-    LYRA_PK       = { secret = "lyra-rp", key = "LYRA_PUBLIC_KEY" }
-  }
+  # BREVO_API_KEY : le compte Brevo est celui d'AAAEP, la clé vit dans brevo-aaaep (une
+  # seule copie, une rotation en un seul endroit). Rien d'autre à brancher : l'application
+  # n'utilise ni Trustpilot, ni Alma.
+  #
+  # Chaque entrée porte son environnement : Lyra suit shared_secrets_env, Brevo suit
+  # shared_brevo_env (ou, à défaut, shared_secrets_env). La prod peut ainsi lire la clé Brevo
+  # dans le secret partagé sans toucher à l'origine des identifiants de paiement.
+  brevo_shared_env = var.shared_brevo_env != null ? var.shared_brevo_env : var.shared_secrets_env
 
-  # toset dédoublonne : un data source et une policy par secret, pas par variable.
-  shared_secret_names = toset([for v in values(local.shared_secret_vars) : v.secret])
+  shared_secret_vars = merge(
+    var.shared_secrets_env == null ? {} : {
+      LYRA_USERNAME = { env = var.shared_secrets_env, secret = "lyra-rp", key = "LYRA_USERNAME" }
+      LYRA_PWD      = { env = var.shared_secrets_env, secret = "lyra-rp", key = "LYRA_PASSWORD" }
+      LYRA_PK       = { env = var.shared_secrets_env, secret = "lyra-rp", key = "LYRA_PUBLIC_KEY" }
+    },
+    local.brevo_shared_env == null ? {} : {
+      BREVO_API_KEY = { env = local.brevo_shared_env, secret = "brevo-aaaep", key = "BREVO_API_KEY" }
+    },
+  )
+
+  # Un data source et une policy par secret, pas par variable : nom du secret => environnement.
+  shared_secret_envs = {
+    for name in toset([for v in values(local.shared_secret_vars) : v.secret]) :
+    name => one(distinct([for v in values(local.shared_secret_vars) : v.env if v.secret == name]))
+  }
 
   # Entrées `secrets` de la task, triées pour un plan stable. valueFrom = "<arn>:<CLE>::" :
   # ARN complet, clé JSON, puis version-stage et version-id laissés vides (version courante).
@@ -47,22 +63,22 @@ locals {
 # Retrouve le secret par son nom : l'ARN porte un suffixe aléatoire posé par AWS, impossible à
 # reconstruire. Échoue au plan si aaaep-shared-infra n'est pas appliqué dans ce compte.
 data "aws_secretsmanager_secret" "shared" {
-  for_each = local.shared_secret_names
-  name     = "shared/${var.shared_secrets_env}/${each.key}"
+  for_each = local.shared_secret_envs
+  name     = "shared/${each.value}/${each.key}"
 }
 
 # Policy de lecture seule créée par aaaep-shared-infra pour ce secret (GetSecretValue sur ce
 # seul ARN), retrouvée par son nom plutôt que réécrite ici : cette stack ne peut lire que
-# lyra-rp, pas les identifiants des autres marques.
+# lyra-rp et brevo-aaaep, pas les identifiants des autres marques.
 data "aws_iam_policy" "shared_read" {
-  for_each = local.shared_secret_names
-  name     = "shared-${var.shared_secrets_env}-read-${each.key}"
+  for_each = local.shared_secret_envs
+  name     = "shared-${each.value}-read-${each.key}"
 }
 
 # Sur le rôle d'EXÉCUTION : c'est lui qu'ECS utilise pour injecter les secrets au démarrage
 # d'une task. Le rôle de task (celui de Laravel) n'en a pas besoin.
 resource "aws_iam_role_policy_attachment" "task_execution_shared" {
-  for_each   = local.shared_secret_names
+  for_each   = local.shared_secret_envs
   role       = aws_iam_role.task_execution.name
   policy_arn = data.aws_iam_policy.shared_read[each.key].arn
 }

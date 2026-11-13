@@ -170,6 +170,10 @@ resource "aws_ecs_task_definition" "app" {
         { name = "LYRA_USERNAME", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_USERNAME::" },
         { name = "LYRA_PWD", valueFrom = "${aws_secretsmanager_secret.app.arn}:LYRA_PWD::" },
       ] : [],
+      # Clé API Brevo : même règle, mais pilotée par shared_brevo_env (shared/<env>/brevo-aaaep).
+      contains(keys(local.shared_secret_vars), "BREVO_API_KEY") ? [] : [
+        { name = "BREVO_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:BREVO_API_KEY::" },
+      ],
       local.shared_secret_task_entries,
     )
 

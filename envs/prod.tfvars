@@ -137,7 +137,19 @@ app_extra_env = {
   # public/robots.txt est un fichier STATIQUE : cette variable n'agit que sur la
   # balise meta, il n'y a pas de second filet côté robots.txt.
   APP_NOINDEX = "false"
+
+  APP_LOCALE = "fr"
+
+  # Les identifiants des gabarits Brevo sont des valeurs par défaut de config/brevo.php
+  # (même compte AAAEP en dev et en prod) : les surcharger ici seulement si besoin.
+
+  # Le repasser à "true" détournerait les vraies invitations vers BREVO_TEST_MAIL.
+  BREVO_TEST_OVERRIDE_ENABLED = "false"
 }
+
+# Clé API Brevo lue dans shared/prod/brevo-aaaep (aaaep-shared-infra). Lyra reste, elle, dans
+# le secret applicatif : shared_secrets_env n'est volontairement pas posé en prod.
+shared_brevo_env = "prod"
 
 # ─── Auto start/stop ECS ──────────────────────────────────────────────────────
 # ⚠️ IMPÉRATIVEMENT false en prod : ces schedules mettent desired_count à 0 tous

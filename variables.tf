@@ -241,6 +241,22 @@ variable "shared_secrets_env" {
   }
 }
 
+variable "shared_brevo_env" {
+  description = <<-EOT
+    Environnement du secret partagé shared/<env>/brevo-aaaep (clé API Brevo), indépendamment de
+    shared_secrets_env (qui pilote Lyra). null = suit shared_secrets_env : en dev il vaut donc
+    "dev" sans rien poser. Sert à la prod, où Lyra reste dans le secret applicatif mais où la
+    clé Brevo est lue dans le secret partagé. Mêmes prérequis que shared_secrets_env.
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.shared_brevo_env == null || contains(["dev", "prod"], coalesce(var.shared_brevo_env, "dev"))
+    error_message = "shared_brevo_env vaut null, \"dev\" ou \"prod\"."
+  }
+}
+
 variable "lyra_public_key" {
   description = "Clé publique Lyra (LYRA_PK), utilisée seulement si shared_secrets_env = null. Publique par nature : chargée côté navigateur par le formulaire Krypton."
   type        = string

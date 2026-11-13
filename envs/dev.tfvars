@@ -53,6 +53,15 @@ app_extra_env = {
   # Layout app.blade.php inject <meta name="robots" content="noindex,nofollow">.
   # À PASSER À "false" si on veut indexer ce déploiement (jamais en dev).
   APP_NOINDEX = "true"
+
+  APP_LOCALE = "fr"
+
+  # Les identifiants des gabarits Brevo sont des valeurs par défaut de config/brevo.php
+  # (même compte AAAEP en dev et en prod) : les surcharger ici seulement si besoin.
+
+  # Tous les envois vont vers BREVO_TEST_MAIL : la dev ne doit jamais écrire à un vrai compte.
+  BREVO_TEST_OVERRIDE_ENABLED = "true"
+  BREVO_TEST_MAIL             = "mirado@aaaep.fr"
 }
 
 # ─── Paiement Lyra / PayZen ───────────────────────────────────────────────────

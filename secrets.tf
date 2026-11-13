@@ -9,6 +9,10 @@
 #     Sinon la task les prend dans shared/<env>/lyra-rp (shared_secrets.tf) et elles
 #     ne servent plus qu'aux anciennes révisions, avant leur retrait (README §2 quater).
 #     Les placeholders restent : un environnement sans secrets partagés en a besoin.
+#   - BREVO_API_KEY  : clé API transactionnelle Brevo (compte AAAEP). Lue ici seulement si
+#     ni shared_brevo_env ni shared_secrets_env ne sont posés ; sinon la task la prend dans
+#     shared/<env>/brevo-aaaep (shared_secrets.tf), c'est le cas de la dev et de la prod.
+#     Le placeholder ci-dessous ne sert alors plus à la task.
 #
 # Terraform crée le CONTENEUR mais jamais les valeurs : tout ce qu'il manipule
 # atterrit en clair dans le tfstate, y compris le résultat d'un `data` source —
@@ -43,7 +47,7 @@ resource "aws_secretsmanager_secret" "app" {
 resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app.id
 
-  # Les 4 clés doivent exister dès la création : ecs.tf les référence une par une
+  # Les 5 clés doivent exister dès la création : ecs.tf les référence une par une
   # (`valueFrom = <arn>:<KEY>::`) et ECS refuse de démarrer la task si l'une
   # manque (ResourceInitializationError, conteneur jamais lancé). D'où des
   # placeholders plutôt qu'un secret vide - une task qui boote avec ces valeurs
@@ -56,6 +60,9 @@ resource "aws_secretsmanager_secret_version" "app" {
     # démarrage : le tunnel affiche « paiement non configuré » au lieu d'encaisser.
     LYRA_USERNAME = "A_INJECTER"
     LYRA_PWD      = "A_INJECTER"
+    # Un placeholder ici ne casse pas le démarrage : les envois Brevo échouent (erreur
+    # journalisée, pas de repli quand un gabarit est configuré).
+    BREVO_API_KEY = "A_INJECTER"
   })
 
   lifecycle {
